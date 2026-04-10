@@ -18,6 +18,11 @@ const fetch     = (...args) =>
   import('node-fetch').then(({ default: f }) => f(...args));
 
 const app  = express();
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'troque-isso-em-producao';
 
