@@ -1,0 +1,29 @@
+# Credenciais — NUNCA subir para o GitHub
+.env
+.env.local
+.env.*.local
+
+# Dependências
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Build
+dist/
+build/
+
+# Temporários
+*.tmp
+*.csv
+lancamentos.csv
