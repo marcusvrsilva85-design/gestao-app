@@ -39,7 +39,15 @@ const db = new Pool({
 // ─────────────────────────────────────────────
 // MIDDLEWARES GLOBAIS
 // ─────────────────────────────────────────────
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+app.use(cors({
+  origin: [
+    process.env.CORS_ORIGIN,
+    'https://gestao-dashboard-sigma.vercel.app',
+    'http://localhost:3001',
+    'http://localhost:3000',
+  ].filter(Boolean),
+  credentials: true,
+}));
 app.use(express.json({ limit: '1mb' }));
 
 // Rate limiting geral
