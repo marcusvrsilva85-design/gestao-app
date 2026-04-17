@@ -50,23 +50,31 @@ export default function HomeScreen() {
   const [refresh,   setRefresh]   = useState(false);
 
   const carregar = useCallback(async () => {
-    try {
-      const comp = competenciaAtual();
-      const [resSaldos, resFaturas, resResumo] = await Promise.all([
-        api.get('/api/saldos'),
-        api.get('/api/faturas'),
-        api.get(`/api/resumo?competencia=${comp}`),
-      ]);
-      setSaldos(resSaldos.data);
-      setFaturas(resFaturas.data);
-      setResumo(resResumo.data.resumo);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setCarregando(false);
-      setRefresh(false);
-    }
-  }, []);
+  try {
+    const comp = competenciaAtual();
+    
+    const [resSaldos, resFaturas, resResumo] = await Promise.allSettled([
+      api.get('/api/saldos'),
+      api.get('/api/faturas'),
+      api.get(`/api/resumo?competencia=${comp}`),
+    ]);
+
+    if (resSaldos.status === 'fulfilled')
+      setSaldos(resSaldos.value.data);
+
+    if (resFaturas.status === 'fulfilled')
+      setFaturas(resFaturas.value.data);
+
+    if (resResumo.status === 'fulfilled')
+      setResumo(resResumo.value.data.resumo);
+
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setCarregando(false);
+    setRefresh(false);
+  }
+}, []);
 
   useEffect(() => { carregar(); }, [carregar]);
 
