@@ -21,7 +21,8 @@ const app = express();
 
 // Configuração para Railway (proxy reverso)
 app.set('trust proxy', 1);
-
+console.log('[Debug] trust proxy =', app.get('trust proxy'));
+console.log('[Debug] arquivo carregado: src/index.js');
 // Debug das variáveis do Strava
 console.log('[Debug] STRAVA_CLIENT_ID:', process.env.STRAVA_CLIENT_ID ? 'OK' : 'AUSENTE');
 console.log('[Debug] STRAVA_CLIENT_SECRET:', process.env.STRAVA_CLIENT_SECRET ? 'OK' : 'AUSENTE');
