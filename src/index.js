@@ -867,10 +867,17 @@ const strava = require('./integracoes/strava');
 
 // GET /api/strava/auth — gera URL de autorização para o usuário
 app.get('/api/strava/auth', autenticar, (req, res) => {
-  const clientId   = process.env.STRAVA_CLIENT_ID;
-  const baseUrl    = process.env.RAILWAY_PUBLIC_DOMAIN
+  console.log('[Strava Auth] Todas as vars:', {
+    CLIENT_ID:     process.env.STRAVA_CLIENT_ID,
+    CLIENT_SECRET: process.env.STRAVA_CLIENT_SECRET ? 'OK' : 'AUSENTE',
+    RAILWAY_DOMAIN: process.env.RAILWAY_PUBLIC_DOMAIN,
+  });
+
+  const clientId = process.env.STRAVA_CLIENT_ID;
+  const baseUrl  = process.env.RAILWAY_PUBLIC_DOMAIN
     ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
     : 'http://localhost:3000';
+
   const redirectUri = `${baseUrl}/webhook/strava/callback`;
 
   const params = new URLSearchParams({
@@ -882,8 +889,10 @@ app.get('/api/strava/auth', autenticar, (req, res) => {
     state:           req.userId,
   });
 
-  const url = `https://www.strava.com/oauth/authorize?${params.toString()}`;
-  res.json({ url, debug_client_id: clientId });
+  res.json({
+    url: `https://www.strava.com/oauth/authorize?${params.toString()}`,
+    debug: { clientId, baseUrl },
+  });
 });
 
 // GET /api/strava/status — verifica se o usuário tem Strava conectado
