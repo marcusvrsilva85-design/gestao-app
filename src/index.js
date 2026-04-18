@@ -867,8 +867,23 @@ const strava = require('./integracoes/strava');
 
 // GET /api/strava/auth — gera URL de autorização para o usuário
 app.get('/api/strava/auth', autenticar, (req, res) => {
-  const url = strava.gerarUrlAutorizacao(req.userId);
-  res.json({ url });
+  const clientId   = process.env.STRAVA_CLIENT_ID;
+  const baseUrl    = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : 'http://localhost:3000';
+  const redirectUri = `${baseUrl}/webhook/strava/callback`;
+
+  const params = new URLSearchParams({
+    client_id:       clientId,
+    redirect_uri:    redirectUri,
+    response_type:   'code',
+    approval_prompt: 'auto',
+    scope:           'activity:read_all',
+    state:           req.userId,
+  });
+
+  const url = `https://www.strava.com/oauth/authorize?${params.toString()}`;
+  res.json({ url, debug_client_id: clientId });
 });
 
 // GET /api/strava/status — verifica se o usuário tem Strava conectado
