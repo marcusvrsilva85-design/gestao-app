@@ -8,31 +8,25 @@
 const fetch = (...args) =>
   import('node-fetch').then(({ default: f }) => f(...args));
 
-const CLIENT_ID     = () => process.env.STRAVA_CLIENT_ID;
-const CLIENT_SECRET = () => process.env.STRAVA_CLIENT_SECRET;
-const VERIFY_TOKEN  = () => process.env.STRAVA_VERIFY_TOKEN;
-const STRAVA_API    = 'https://www.strava.com/api/v3';
+const STRAVA_API = 'https://www.strava.com/api/v3';
 
 // ─────────────────────────────────────────────
 // MAPEAMENTO: tipo Strava → tipo do nosso app
 // ─────────────────────────────────────────────
 const TIPO_ATIVIDADE = {
-  Ride:               'Ciclismo',
-  VirtualRide:        'Ciclismo',
-  MountainBikeRide:   'Ciclismo',
-  Run:                'Corrida',
-  VirtualRun:         'Corrida',
-  Swim:               'Natação',
-  WeightTraining:     'Musculação',
-  Workout:            'HIIT',
-  Crossfit:           'HIIT',
-  Hike:               'Outro',
-  Walk:               'Outro',
-  Yoga:               'Mobilidade',
-  Pilates:            'Mobilidade',
-  Soccer:             'Outro',
-  Tennis:             'Outro',
-  Rowing:             'Outro',
+  Ride:             'Ciclismo',
+  VirtualRide:      'Ciclismo',
+  MountainBikeRide: 'Ciclismo',
+  Run:              'Corrida',
+  VirtualRun:       'Corrida',
+  Swim:             'Natação',
+  WeightTraining:   'Musculação',
+  Workout:          'HIIT',
+  Crossfit:         'HIIT',
+  Hike:             'Outro',
+  Walk:             'Outro',
+  Yoga:             'Mobilidade',
+  Pilates:          'Mobilidade',
 };
 
 // ─────────────────────────────────────────────
@@ -46,12 +40,12 @@ function gerarUrlAutorizacao(userId) {
   const redirectUri = `${baseUrl}/webhook/strava/callback`;
 
   const params = new URLSearchParams({
-    client_id:     CLIENT_ID,
-    redirect_uri:  redirectUri,
-    response_type: 'code',
+    client_id:       process.env.STRAVA_CLIENT_ID,
+    redirect_uri:    redirectUri,
+    response_type:   'code',
     approval_prompt: 'auto',
-    scope:         'activity:read_all',
-    state:         userId, // passa o user_id para recuperar no callback
+    scope:           'activity:read_all',
+    state:           userId,
   });
 
   return `https://www.strava.com/oauth/authorize?${params.toString()}`;
@@ -65,8 +59,8 @@ async function trocarCodePorTokens(code) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id:     CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id:     process.env.STRAVA_CLIENT_ID,
+      client_secret: process.env.STRAVA_CLIENT_SECRET,
       code,
       grant_type:    'authorization_code',
     }),
@@ -76,15 +70,15 @@ async function trocarCodePorTokens(code) {
 }
 
 // ─────────────────────────────────────────────
-// RENOVAR ACCESS TOKEN (expira a cada 6 horas)
+// RENOVAR ACCESS TOKEN
 // ─────────────────────────────────────────────
 async function renovarToken(refreshToken) {
   const resp = await fetch('https://www.strava.com/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id:     CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id:     process.env.STRAVA_CLIENT_ID,
+      client_secret: process.env.STRAVA_CLIENT_SECRET,
       refresh_token: refreshToken,
       grant_type:    'refresh_token',
     }),
@@ -106,13 +100,11 @@ async function buscarAtividade(activityId, accessToken) {
 
 // ─────────────────────────────────────────────
 // GARANTIR TOKEN VÁLIDO
-// Renova automaticamente se estiver expirado
 // ─────────────────────────────────────────────
 async function garantirTokenValido(db, integracao) {
-  const agora = new Date();
+  const agora  = new Date();
   const expira = new Date(integracao.token_expires_at);
 
-  // Se expira em menos de 10 minutos, renova
   if (expira - agora < 10 * 60 * 1000) {
     console.log(`[Strava] Renovando token para user ${integracao.user_id}`);
     const novos = await renovarToken(integracao.refresh_token);
@@ -143,7 +135,6 @@ function converterAtividade(atividade) {
     || TIPO_ATIVIDADE[atividade.type]
     || 'Outro';
 
-  // Calcular zona predominante pela FC média
   let zona = null;
   if (atividade.average_heartrate) {
     const fc = atividade.average_heartrate;
@@ -176,13 +167,11 @@ function converterAtividade(atividade) {
     distancia_km:       atividade.distance
                           ? parseFloat((atividade.distance / 1000).toFixed(2))
                           : null,
-    notas:              `Importado do Strava · ${atividade.sport_type}${
-                          atividade.total_elevation_gain
-                            ? ` · ${Math.round(atividade.total_elevation_gain)}m de elevação`
-                            : ''
-                        }`,
-    fonte:              'Strava',
-    strava_activity_id: atividade.id,
+    notas:              `Importado do Strava · ${atividade.sport_type}` +
+                        (atividade.total_elevation_gain
+                          ? ` · ${Math.round(atividade.total_elevation_gain)}m elevação`
+                          : '') +
+                        ` · ID:${atividade.id}`,
   };
 }
 
@@ -192,14 +181,14 @@ function converterAtividade(atividade) {
 async function salvarAtividade(db, userId, atividade) {
   const sessao = converterAtividade(atividade);
 
-  // Verificar se já foi importada (evitar duplicata)
   const { rows: [existe] } = await db.query(
     `SELECT id FROM treino_sessoes
      WHERE user_id=$1 AND notas LIKE $2`,
-    [userId, `%${sessao.strava_activity_id}%`]
+    [userId, `%ID:${atividade.id}%`]
   );
+
   if (existe) {
-    console.log(`[Strava] Atividade ${sessao.strava_activity_id} já importada`);
+    console.log(`[Strava] Atividade ${atividade.id} já importada`);
     return null;
   }
 
@@ -224,23 +213,22 @@ async function salvarAtividade(db, userId, atividade) {
     ]
   );
 
-  console.log(`[Strava] Atividade salva: ${sessao.nome} (${sessao.tipo}) — user ${userId}`);
+  console.log(`[Strava] Salvo: ${sessao.nome} — user ${userId}`);
   return salva;
 }
 
 // ─────────────────────────────────────────────
 // REGISTRAR WEBHOOK NO STRAVA
-// Chamar uma vez para ativar as notificações
 // ─────────────────────────────────────────────
 async function registrarWebhook(callbackUrl) {
   const resp = await fetch('https://www.strava.com/api/v3/push_subscriptions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id:     CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id:     process.env.STRAVA_CLIENT_ID,
+      client_secret: process.env.STRAVA_CLIENT_SECRET,
       callback_url:  callbackUrl,
-      verify_token:  VERIFY_TOKEN,
+      verify_token:  process.env.STRAVA_VERIFY_TOKEN,
     }),
   });
   const data = await resp.json();
