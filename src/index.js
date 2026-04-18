@@ -853,7 +853,166 @@ cron.schedule('0 8 * * *', async () => {
     }
   } catch (err) { console.error('[Cron alertas]', err.message); }
 }, { timezone: 'America/Sao_Paulo' });
+// ─────────────────────────────────────────────
+// INTEGRAÇÃO STRAVA
+// ─────────────────────────────────────────────
+const strava = require('./integracoes/strava');
 
+// GET /api/strava/auth — gera URL de autorização para o usuário
+app.get('/api/strava/auth', autenticar, (req, res) => {
+  const url = strava.gerarUrlAutorizacao(req.userId);
+  res.json({ url });
+});
+
+// GET /api/strava/status — verifica se o usuário tem Strava conectado
+app.get('/api/strava/status', autenticar, async (req, res) => {
+  const { rows: [integ] } = await db.query(
+    'SELECT strava_athlete_id, ativo, criado_em FROM integracoes_strava WHERE user_id=$1',
+    [req.userId]
+  );
+  res.json({
+    conectado: !!integ?.ativo,
+    athlete_id: integ?.strava_athlete_id || null,
+    desde: integ?.criado_em || null,
+  });
+});
+
+// GET /webhook/strava/callback — Strava redireciona aqui após autorização
+app.get('/webhook/strava/callback', async (req, res) => {
+  const { code, state: userId, error } = req.query;
+
+  if (error) {
+    return res.redirect(
+      `${process.env.DASHBOARD_URL || 'https://gestao-dashboard-sigma.vercel.app'}/treino?strava=negado`
+    );
+  }
+
+  try {
+    // Trocar code por tokens
+    const tokens = await strava.trocarCodePorTokens(code);
+
+    // Salvar na tabela integracoes_strava
+    await db.query(
+      `INSERT INTO integracoes_strava
+        (user_id, strava_athlete_id, access_token, refresh_token, token_expires_at, scope)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (strava_athlete_id) DO UPDATE SET
+         access_token=$3, refresh_token=$4,
+         token_expires_at=$5, ativo=true`,
+      [
+        userId,
+        tokens.athlete.id,
+        tokens.access_token,
+        tokens.refresh_token,
+        new Date(tokens.expires_at * 1000).toISOString(),
+        tokens.scope,
+      ]
+    );
+
+    console.log(`[Strava] Usuário ${userId} conectou Strava (athlete ${tokens.athlete.id})`);
+
+    // Redirecionar de volta para o dashboard
+    res.redirect(
+      `${process.env.DASHBOARD_URL || 'https://gestao-dashboard-sigma.vercel.app'}/treino?strava=conectado`
+    );
+  } catch (err) {
+    console.error('[Strava callback]', err.message);
+    res.redirect(
+      `${process.env.DASHBOARD_URL || 'https://gestao-dashboard-sigma.vercel.app'}/treino?strava=erro`
+    );
+  }
+});
+
+// GET /webhook/strava — verificação do webhook pelo Strava
+app.get('/webhook/strava', (req, res) => {
+  const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query;
+
+  if (mode === 'subscribe' && token === process.env.STRAVA_VERIFY_TOKEN) {
+    console.log('[Strava] Webhook verificado com sucesso');
+    return res.json({ 'hub.challenge': challenge });
+  }
+  res.sendStatus(403);
+});
+
+// POST /webhook/strava — recebe notificações de atividades novas
+app.post('/webhook/strava', async (req, res) => {
+  // Confirmar recebimento imediatamente
+  res.sendStatus(200);
+
+  const { object_type, object_id, aspect_type, owner_id } = req.body;
+
+  // Só processa criação de atividades
+  if (object_type !== 'activity' || aspect_type !== 'create') return;
+
+  console.log(`[Strava] Nova atividade: ${object_id} do atleta ${owner_id}`);
+
+  try {
+    // Buscar integração pelo strava_athlete_id
+    const { rows: [integ] } = await db.query(
+      'SELECT * FROM integracoes_strava WHERE strava_athlete_id=$1 AND ativo=true',
+      [owner_id]
+    );
+    if (!integ) {
+      console.warn(`[Strava] Atleta ${owner_id} não encontrado no banco`);
+      return;
+    }
+
+    // Garantir token válido (renova se necessário)
+    const accessToken = await strava.garantirTokenValido(db, integ);
+
+    // Buscar detalhes da atividade
+    const atividade = await strava.buscarAtividade(object_id, accessToken);
+
+    // Salvar no banco
+    const salva = await strava.salvarAtividade(db, integ.user_id, atividade);
+
+    if (salva) {
+      // Notificar via Telegram se o usuário tiver conectado
+      const { rows: [usuario] } = await db.query(
+        'SELECT telegram_chat_id, telegram_ativo FROM usuarios WHERE id=$1',
+        [integ.user_id]
+      );
+
+      if (usuario?.telegram_ativo && usuario?.telegram_chat_id) {
+        const { enviar } = require('./lib/telegram');
+        await enviar(
+          usuario.telegram_chat_id,
+          `🏃 <b>Atividade importada do Strava!</b>\n\n` +
+          `<b>${atividade.name}</b>\n` +
+          `Tipo: ${atividade.sport_type}\n` +
+          `${atividade.elapsed_time ? `Duração: ${Math.round(atividade.elapsed_time / 60)} min\n` : ''}` +
+          `${atividade.distance ? `Distância: ${(atividade.distance / 1000).toFixed(1)} km\n` : ''}` +
+          `${atividade.calories ? `Calorias: ${atividade.calories} kcal\n` : ''}` +
+          `\n<i>Salvo automaticamente no seu histórico de treino</i>`
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[Strava webhook]', err.message);
+  }
+});
+
+// POST /api/strava/desconectar
+app.post('/api/strava/desconectar', autenticar, async (req, res) => {
+  await db.query(
+    'UPDATE integracoes_strava SET ativo=false WHERE user_id=$1',
+    [req.userId]
+  );
+  res.json({ mensagem: 'Strava desconectado' });
+});
+
+// POST /api/strava/registrar-webhook — chamar uma vez para ativar
+app.post('/api/strava/registrar-webhook', autenticar, async (req, res) => {
+  try {
+    const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : 'http://localhost:3000';
+    const resultado = await strava.registrarWebhook(`${baseUrl}/webhook/strava`);
+    res.json(resultado);
+  } catch (err) {
+    res.status(500).json({ erro: err.message });
+  }
+});
 // ─────────────────────────────────────────────
 // HEALTH CHECK E ROTA RAIZ
 // ─────────────────────────────────────────────
