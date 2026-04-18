@@ -17,7 +17,14 @@ const cron      = require('node-cron');
 const fetch     = (...args) =>
   import('node-fetch').then(({ default: f }) => f(...args));
 
-const app  = express();
+const app = express();
+
+// Configuração para Railway (proxy reverso)
+app.set('trust proxy', 1);
+
+// Debug das variáveis do Strava
+console.log('[Debug] STRAVA_CLIENT_ID:', process.env.STRAVA_CLIENT_ID ? 'OK' : 'AUSENTE');
+console.log('[Debug] STRAVA_CLIENT_SECRET:', process.env.STRAVA_CLIENT_SECRET ? 'OK' : 'AUSENTE');
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
