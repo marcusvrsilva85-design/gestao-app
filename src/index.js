@@ -1047,7 +1047,8 @@ async function iniciar() {
     app.listen(PORT, () => console.log(`✅ Servidor na porta ${PORT}`));
   } catch (err) {
     console.error('❌ Falha ao iniciar:', err.message);
+    console.error('❌ Stack completo:', err.stack);
+    console.error('❌ Detalhes:', JSON.stringify(err, null, 2));
     process.exit(1);
   }
 }
-iniciar();
