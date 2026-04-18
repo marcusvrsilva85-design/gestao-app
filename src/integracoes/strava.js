@@ -8,9 +8,9 @@
 const fetch = (...args) =>
   import('node-fetch').then(({ default: f }) => f(...args));
 
-const CLIENT_ID     = process.env.STRAVA_CLIENT_ID;
-const CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
-const VERIFY_TOKEN  = process.env.STRAVA_VERIFY_TOKEN;
+const CLIENT_ID     = () => process.env.STRAVA_CLIENT_ID;
+const CLIENT_SECRET = () => process.env.STRAVA_CLIENT_SECRET;
+const VERIFY_TOKEN  = () => process.env.STRAVA_VERIFY_TOKEN;
 const STRAVA_API    = 'https://www.strava.com/api/v3';
 
 // ─────────────────────────────────────────────
