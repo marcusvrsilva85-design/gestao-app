@@ -14,6 +14,8 @@ const rateLimit = require('express-rate-limit');
 const bcrypt    = require('bcrypt');
 const jwt       = require('jsonwebtoken');
 const cron      = require('node-cron');
+const crypto    = require('crypto');
+const nodemailer = require('nodemailer');
 const fetch     = (...args) =>
   import('node-fetch').then(({ default: f }) => f(...args));
 
@@ -185,6 +187,90 @@ app.get('/auth/me', autenticar, async (req, res) => {
     [req.userId]
   );
   res.json(rows[0]);
+});
+
+// POST /auth/esqueci-senha — solicitar redefinição de senha
+app.post('/auth/esqueci-senha', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email)
+      return res.status(400).json({ erro: 'E-mail é obrigatório' });
+
+    const { rows: [usuario] } = await db.query(
+      'SELECT id, nome FROM usuarios WHERE email=$1 AND ativo=true',
+      [email.toLowerCase().trim()]
+    );
+
+    // Sempre retorna 200 para não revelar se o e-mail existe
+    if (!usuario) return res.json({ mensagem: 'Se o e-mail existir, você receberá as instruções.' });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expira = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+    await db.query(
+      `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET token=$2, expires_at=$3, usado=false`,
+      [usuario.id, token, expira.toISOString()]
+    );
+
+    const baseUrl = process.env.DASHBOARD_URL || 'https://gestao-dashboard-sigma.vercel.app';
+    const link = `${baseUrl}/redefinir-senha?token=${token}`;
+
+    const transporter = nodemailer.createTransport({
+      host:   process.env.EMAIL_HOST,
+      port:   parseInt(process.env.EMAIL_PORT || '587'),
+      secure: process.env.EMAIL_SECURE === 'true',
+      auth:   { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+
+    await transporter.sendMail({
+      from:    `"Gestão Pessoal" <${process.env.EMAIL_USER}>`,
+      to:      email,
+      subject: 'Redefinição de senha',
+      html: `
+        <p>Olá, <b>${usuario.nome}</b>!</p>
+        <p>Clique no botão abaixo para redefinir sua senha. O link expira em <b>1 hora</b>.</p>
+        <p><a href="${link}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">Redefinir senha</a></p>
+        <p>Se você não solicitou isso, ignore este e-mail.</p>
+      `,
+    });
+
+    res.json({ mensagem: 'Se o e-mail existir, você receberá as instruções.' });
+  } catch (err) {
+    console.error('[esqueci-senha]', err.message);
+    res.status(500).json({ erro: 'Erro ao processar solicitação' });
+  }
+});
+
+// POST /auth/redefinir-senha — confirmar nova senha com o token
+app.post('/auth/redefinir-senha', async (req, res) => {
+  try {
+    const { token, nova_senha } = req.body;
+    if (!token || !nova_senha)
+      return res.status(400).json({ erro: 'token e nova_senha são obrigatórios' });
+    if (nova_senha.length < 6)
+      return res.status(400).json({ erro: 'Senha deve ter mínimo 6 caracteres' });
+
+    const { rows: [registro] } = await db.query(
+      `SELECT * FROM password_reset_tokens
+       WHERE token=$1 AND usado=false AND expires_at > NOW()`,
+      [token]
+    );
+
+    if (!registro)
+      return res.status(400).json({ erro: 'Token inválido ou expirado' });
+
+    const senhaHash = await bcrypt.hash(nova_senha, 12);
+
+    await db.query('UPDATE usuarios SET senha_hash=$1 WHERE id=$2', [senhaHash, registro.user_id]);
+    await db.query('UPDATE password_reset_tokens SET usado=true WHERE token=$1', [token]);
+
+    res.json({ mensagem: 'Senha redefinida com sucesso' });
+  } catch (err) {
+    console.error('[redefinir-senha]', err.message);
+    res.status(500).json({ erro: 'Erro ao redefinir senha' });
+  }
 });
 
 // PATCH /auth/telegram — conectar bot Telegram
