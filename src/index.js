@@ -239,8 +239,10 @@ app.post('/auth/esqueci-senha', async (req, res) => {
 
     res.json({ mensagem: 'Se o e-mail existir, você receberá as instruções.' });
   } catch (err) {
-    console.error('[esqueci-senha]', err.message);
-    res.status(500).json({ erro: 'Erro ao processar solicitação' });
+    console.error('[esqueci-senha] ERRO:', err.message);
+    console.error('[esqueci-senha] CÓDIGO:', err.code);
+    console.error('[esqueci-senha] STACK:', err.stack);
+    res.status(500).json({ erro: 'Erro ao processar solicitação', detalhe: err.code || err.message });
   }
 });
 
