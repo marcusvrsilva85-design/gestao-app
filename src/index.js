@@ -15,7 +15,7 @@ const bcrypt    = require('bcrypt');
 const jwt       = require('jsonwebtoken');
 const cron      = require('node-cron');
 const crypto    = require('crypto');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const fetch     = (...args) =>
   import('node-fetch').then(({ default: f }) => f(...args));
 
@@ -217,16 +217,10 @@ app.post('/auth/esqueci-senha', async (req, res) => {
     const baseUrl = process.env.DASHBOARD_URL || 'https://gestao-dashboard-sigma.vercel.app';
     const link = `${baseUrl}/redefinir-senha?token=${token}`;
 
-    const transporter = nodemailer.createTransport({
-      host:   'smtp.gmail.com',
-      port:   587,
-      secure: false,
-      family: 4,
-      auth:   { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-    });
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
-    await transporter.sendMail({
-      from:    `"Gestão Pessoal" <${process.env.EMAIL_USER}>`,
+    await resend.emails.send({
+      from:    'Gestão Pessoal <onboarding@resend.dev>',
       to:      email,
       subject: 'Redefinição de senha',
       html: `
